@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Teacher Dashboard - ACME University</title>
+    <style>
+        body { font-family: sans-serif; background-color: #dbe4f0; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; border: 1px solid #7c93c4; background-color: #dbe4f0; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 20px; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: normal; }
+        .header a { color: #2a5599; text-decoration: none; }
+        
+        /* Tab Styling */
+        .tabs { display: flex; border-top: 1px solid #7c93c4; border-bottom: 1px solid #7c93c4; }
+        .tab { flex: 1; text-align: center; padding: 10px; background-color: #aebce0; cursor: pointer; color: black; }
+        .tab.active { background-color: #4a72b8; color: white; }
+
+        .content { background-color: #4a72b8; padding: 40px; min-height: 300px; }
+        
+        table { width: 100%; border-collapse: collapse; background-color: white; }
+        th, td { padding: 10px; text-align: left; border: 1px solid #c9d4e5; }
+        th { background-color: #8da3d4; color: white; font-weight: normal; }
+        tr:nth-child(even) { background-color: #f2f5fa; }
+        
+        /* Grading Form Elements */
+        .course-select { padding: 10px; width: 100%; margin-bottom: 20px; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
+        .grade-input { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; }
+        .save-btn { background-color: #4a72b8; color: white; border: none; padding: 6px 12px; cursor: pointer; border-radius: 3px; font-size: 12px;}
+        .save-btn:hover { background-color: #2a5599; }
+        .current-grade { font-weight: bold; color: #333; font-size: 18px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div>Welcome Dr {{ user.name.split(' ')[-1] }}!</div>
+        <h1>ACME University</h1>
+        <a href="{{ url_for('logout') }}">Sign out</a>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" id="tab-your-courses" onclick="switchTab('your-courses')">Your Courses</div>
+        <div class="tab" id="tab-students-enrolled" onclick="switchTab('students-enrolled')">Students Enrolled</div>
+    </div>
+
+    <div class="content">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 15px; border-radius: 5px; text-align: center;">{{ messages[0] }}</div>
+          {% endif %}
+        {% endwith %}
+
+        <div id="view-your-courses">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Course Name</th>
+                        <th>Time</th>
+                        <th>Students Enrolled</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for course in user.courses_taught %}
+                    <tr>
+                        <td><strong>{{ course.name }}</strong></td>
+                        <td>{{ course.time }}</td>
+                        <td>{{ course.enrollments|length }}/{{ course.capacity }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" style="text-align: center;">You are not teaching any courses right now.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div id="view-students-enrolled" style="display: none;">
+            
+            <select class="course-select" id="course-dropdown" onchange="showGradeTable(this.value)">
+                <option value="">-- Select a Class to View Roster --</option>
+                {% for course in user.courses_taught %}
+                    <option value="{{ course.id }}">{{ course.name }}</option>
+                {% endfor %}
+            </select>
+
+            {% for course in user.courses_taught %}
+            <div id="grading-table-{{ course.id }}" class="grading-table-container" style="display: none;">
+                <h3 style="color: white; margin-top: 0;">{{ course.name }} Roster</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student Name</th>
+                            <th>Current Grade</th>
+                            <th>Update Grade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for enrollment in course.enrollments %}
+                        <tr>
+                            <td>{{ enrollment.student.name }}</td>
+                            <td class="current-grade">
+                                {% if enrollment.grade != None %}{{ enrollment.grade }}%{% else %}<span style="color: #999; font-weight: normal; font-size: 14px;">Unassigned</span>{% endif %}
+                            </td>
+                            <td style="background-color: #fcecd4;"> 
+                                <form method="POST" action="{{ url_for('update_grade', enrollment_id=enrollment.id) }}" style="display: flex; gap: 10px; align-items: center; margin: 0;">
+                                    <input type="number" name="grade" class="grade-input" value="{{ enrollment.grade if enrollment.grade != None else '' }}" min="0" max="100" placeholder="0-100">
+                                    <button type="submit" class="save-btn">Save</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" style="text-align: center;">No students enrolled yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+
+        </div>
+    </div>
+</div>
+
+<script>
+    function switchTab(tabName) {
+        document.getElementById('view-your-courses').style.display = 'none';
+        document.getElementById('view-students-enrolled').style.display = 'none';
+        document.getElementById('tab-your-courses').classList.remove('active');
+        document.getElementById('tab-students-enrolled').classList.remove('active');
+        
+        document.getElementById('view-' + tabName).style.display = 'block';
+        document.getElementById('tab-' + tabName).classList.add('active');
+    }
+
+    function showGradeTable(courseId) {
+        let tables = document.getElementsByClassName('grading-table-container');
+        for (let i = 0; i < tables.length; i++) {
+            tables[i].style.display = 'none';
+        }
+        if (courseId) {
+            document.getElementById('grading-table-' + courseId).style.display = 'block';
+        }
+    }
+
+    window.onload = function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const activeTab = urlParams.get('active_tab');
+        const courseId = urlParams.get('course_id');
+
+        if (activeTab === 'students-enrolled') {
+            switchTab('students-enrolled');
+            if (courseId) {
+                document.getElementById('course-dropdown').value = courseId;
+                showGradeTable(courseId);
+            }
+        }
+    };
+</script>
+
+</body>
+</html>
