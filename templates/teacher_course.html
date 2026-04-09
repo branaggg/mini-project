@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ course.name }} Roster - ACME University</title>
+    <style>
+        body { font-family: sans-serif; background-color: #dbe4f0; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; border: 1px solid #7c93c4; background-color: #dbe4f0; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 20px; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: normal; }
+        .header a { color: #2a5599; text-decoration: none; }
+        
+        .tabs { display: flex; border-top: 1px solid #7c93c4; border-bottom: 1px solid #7c93c4; background-color: #4a72b8; padding: 10px; align-items: center;}
+        .back-btn { color: white; text-decoration: none; font-size: 24px; margin-left: 10px; margin-right: auto;}
+        .course-title { color: white; margin: 0 auto; transform: translateX(-20px); font-weight: bold;}
+
+        .content { background-color: #4a72b8; padding: 40px; min-height: 300px; }
+        
+        table { width: 70%; margin: 0 auto; border-collapse: collapse; background-color: white; }
+        th, td { padding: 10px; text-align: left; border: 1px solid #c9d4e5; }
+        th { background-color: #8da3d4; color: white; font-weight: normal; }
+        tr:nth-child(even) { background-color: #f2f5fa; }
+        
+        .grade-input { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; }
+        .save-btn { background-color: #f5f5f5; color: #333; border: 1px solid #ccc; padding: 5px 10px; cursor: pointer; border-radius: 3px; font-size: 12px;}
+        .save-btn:hover { background-color: #e0e0e0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div>Welcome Dr {{ user.name.split(' ')[-1] }}!</div>
+        <h1>ACME University</h1>
+        <a href="{{ url_for('logout') }}">Sign out</a>
+    </div>
+
+    <div class="tabs">
+        <a href="{{ url_for('teacher_dashboard') }}" class="back-btn">⬅</a>
+        <div class="course-title">{{ course.name }}</div>
+    </div>
+
+    <div class="content">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 15px; border-radius: 5px; text-align: center; width: 70%; margin: 0 auto 15px auto;">{{ messages[0] }}</div>
+          {% endif %}
+        {% endwith %}
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Student Name</th>
+                    <th>Grade</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for enrollment in course.enrollments %}
+                <tr>
+                    <td>{{ enrollment.student.name }}</td>
+                    <td style="background-color: #fcecd4;"> 
+                        <form method="POST" action="{{ url_for('update_grade', enrollment_id=enrollment.id) }}" style="display: flex; gap: 10px; align-items: center; margin: 0;">
+                            <input type="number" name="grade" class="grade-input" value="{{ enrollment.grade if enrollment.grade != None else '' }}" min="0" max="100">
+                            <button type="submit" class="save-btn">Save</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="2" style="text-align: center;">No students enrolled yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+</body>
+</html>
