@@ -1,7 +1,9 @@
 from flask import Flask, render_template, redirect, url_for, request, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from flask_admin import Admin
+from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
+from flask_admin.menu import MenuLink 
+from markupsafe import Markup  # NEW: Allows us to inject custom HTML into the admin columns
 from models import db, User, Course, Enrollment
 
 app = Flask(__name__)
@@ -18,17 +20,167 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 # --- FLASK ADMIN SETUP ---
-class AdminModelView(ModelView):
+class DashboardView(AdminIndexView):
+    def is_visible(self):
+        return False 
+        
+    def is_accessible(self):
+        return current_user.is_authenticated and current_user.role == 'admin'
+        
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login'))
+        
+    @expose('/')
+    def index(self):
+        return redirect(url_for('user.index_view'))
+
+
+# Queries for dropdown menus
+def available_courses_query():
+    return Course.query.outerjoin(Enrollment).group_by(Course.id).having(db.func.count(Enrollment.id) < Course.capacity)
+
+def course_label_formatter(c):
+    return f"{c.name} ({len(c.enrollments)}/{c.capacity})"
+
+def available_students_query():
+    return User.query.filter_by(role='student')
+
+# --- NEW: NESTED HTML FORMATTER ---
+# This builds the exact "subrow" mini-table you designed in your mockup
+def nested_table_formatter(view, context, model, name):
+    if model.role == 'student':
+        if not model.enrollments:
+            return Markup('<span style="color: #9ca3af; font-style: italic;">No enrollments</span>')
+
+        # Build a mini HTML table for the student's courses and grades
+        html = '''
+        <table style="width: 100%; min-width: 200px; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white;">
+            <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 6px 12px; text-align: left; font-size: 12px; color: #6b7280; font-weight: 600;">Course</th>
+                <th style="padding: 6px 12px; text-align: right; font-size: 12px; color: #6b7280; font-weight: 600;">Grade</th>
+            </tr>
+        '''
+        for e in model.enrollments:
+            course_name = e.course.name if e.course else "Unknown"
+            grade = f"<strong style='color: #111827;'>{e.grade}%</strong>" if e.grade is not None else '<span style="color: #9ca3af;">--</span>'
+            html += f'''
+            <tr style="border-bottom: 1px solid #f3f4f6;">
+                <td style="padding: 6px 12px; font-size: 13px; color: #374151; font-weight: 600;">{course_name}</td>
+                <td style="padding: 6px 12px; font-size: 13px; text-align: right;">{grade}</td>
+            </tr>
+            '''
+        html += '</table>'
+        return Markup(html)
+
+    elif model.role == 'teacher':
+        if not model.courses_taught:
+             return Markup('<span style="color: #9ca3af; font-style: italic;">Not teaching</span>')
+
+        # Build a similar mini table for teachers showing their classes and capacities
+        html = '''
+        <table style="width: 100%; min-width: 200px; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white;">
+            <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 6px 12px; text-align: left; font-size: 12px; color: #6b7280; font-weight: 600;">Course Taught</th>
+                <th style="padding: 6px 12px; text-align: right; font-size: 12px; color: #6b7280; font-weight: 600;">Fill</th>
+            </tr>
+        '''
+        for c in model.courses_taught:
+            html += f'''
+            <tr style="border-bottom: 1px solid #f3f4f6;">
+                <td style="padding: 6px 12px; font-size: 13px; color: #374151; font-weight: 600;">{c.name}</td>
+                <td style="padding: 6px 12px; font-size: 13px; text-align: right; color: #374151;">{len(c.enrollments)}/{c.capacity}</td>
+            </tr>
+            '''
+        html += '</table>'
+        return Markup(html)
+
+    return Markup('<span style="color: #9ca3af;">Admin User</span>')
+
+
+class UserAdminView(ModelView):
     def is_accessible(self):
         return current_user.is_authenticated and current_user.role == 'admin'
     
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login'))
 
-admin = Admin(app, name='ACME Admin')
-admin.add_view(AdminModelView(User, db.session))
-admin.add_view(AdminModelView(Course, db.session))
-admin.add_view(AdminModelView(Enrollment, db.session))
+    # We tell Flask admin to look for a dummy column called 'details'
+    column_list = ('username', 'name', 'role', 'details') 
+    
+    # We map that 'details' column to our custom nested HTML function!
+    column_formatters = {
+        'details': nested_table_formatter
+    }
+    
+    column_labels = {
+        'username': 'Username',
+        'name': 'Full Name',
+        'role': 'Role',
+        'details': 'Enrollment & Teaching Details'
+    }
+
+    inline_models = [
+        (Enrollment, {
+            'form_args': {
+                'course': {
+                    'query_factory': available_courses_query,
+                    'get_label': course_label_formatter
+                }
+            }
+        })
+    ]
+
+class CourseAdminView(ModelView):
+    def is_accessible(self):
+        return current_user.is_authenticated and current_user.role == 'admin'
+
+    column_list = ('name', 'teacher', 'time', 'capacity', 'roster_list')
+    
+    column_labels = {
+        'name': 'Course Name',
+        'teacher': 'Instructor',
+        'time': 'Schedule',
+        'capacity': 'Max Capacity',
+        'roster_list': 'Enrolled Students'
+    }
+
+    inline_models = [
+        (Enrollment, {
+            'form_args': {
+                'student': {
+                    'query_factory': available_students_query
+                }
+            }
+        })
+    ]
+
+class EnrollmentAdminView(ModelView):
+    def is_accessible(self):
+        return current_user.is_authenticated and current_user.role == 'admin'
+        
+    column_list = ('student', 'course', 'grade')
+    column_labels = {
+        'student': 'Student',
+        'course': 'Course',
+        'grade': 'Current Grade'
+    }
+    
+    form_args = {
+        'course': {
+            'query_factory': available_courses_query,
+            'get_label': course_label_formatter
+        },
+        'student': {
+            'query_factory': available_students_query
+        }
+    }
+
+# Register the updated views
+admin = Admin(app, name='ACME Admin', index_view=DashboardView())
+admin.add_view(UserAdminView(User, db.session))
+admin.add_view(CourseAdminView(Course, db.session))
+admin.add_view(EnrollmentAdminView(Enrollment, db.session))
+admin.add_link(MenuLink(name='Sign out', category='', url='/logout'))
 
 # --- GENERAL ROUTES ---
 @app.route('/', methods=['GET', 'POST'])
@@ -63,10 +215,8 @@ def logout():
 def student_dashboard():
     if current_user.role != 'student':
         return redirect(url_for('login'))
-    
     all_courses = Course.query.all()
     enrolled_course_ids = [e.course_id for e in current_user.enrollments]
-    
     return render_template('student.html', user=current_user, all_courses=all_courses, enrolled_course_ids=enrolled_course_ids)
 
 @app.route('/enroll/<int:course_id>')
@@ -121,7 +271,6 @@ def update_grade(enrollment_id):
     db.session.commit()
     flash(f"Grade updated successfully for {enrollment.student.name}!")
     
-    # Updated to point back to the specific 'students-enrolled' tab
     return redirect(url_for('teacher_dashboard', active_tab='students-enrolled', course_id=enrollment.course_id))
 
 with app.app_context():
