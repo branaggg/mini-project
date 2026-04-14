@@ -188,7 +188,7 @@ class StudentEnrollmentView(BaseAdminView):
     ]
 
     def on_model_change(self, form, model, is_created):
-        # We ensure the 6-class limit still works here
+   
         if is_created and model.student:
             current_count = Enrollment.query.filter_by(student_id=model.student.id).count()
             if current_count >= 6:
