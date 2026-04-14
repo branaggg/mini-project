@@ -5,7 +5,7 @@ from flask_admin.contrib.sqla import ModelView
 from flask_admin.menu import MenuLink 
 from markupsafe import Markup
 from sqlalchemy.exc import IntegrityError 
-from wtforms.validators import ValidationError # NEW: Allows us to throw safe errors in the admin panel
+from wtforms.validators import ValidationError
 from models import db, User, Course, Enrollment
 
 app = Flask(__name__)
@@ -34,7 +34,7 @@ class DashboardView(AdminIndexView):
         
     @expose('/')
     def index(self):
-        return redirect(url_for('user.index_view'))
+        return redirect(url_for('users.index_view'))
 
 
 class BaseAdminView(ModelView):
@@ -70,7 +70,7 @@ def nested_table_formatter(view, context, model, name):
             return Markup('<span style="color: #9ca3af; font-style: italic;">No enrollments</span>')
 
         html = '''
-        <table style="width: 100%; min-width: 200px; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white;">
+        <table style="width: 100%; min-width: 250px; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white;">
             <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
                 <th style="padding: 6px 12px; text-align: left; font-size: 12px; color: #6b7280; font-weight: 600;">Course</th>
                 <th style="padding: 6px 12px; text-align: right; font-size: 12px; color: #6b7280; font-weight: 600;">Grade</th>
@@ -93,7 +93,7 @@ def nested_table_formatter(view, context, model, name):
              return Markup('<span style="color: #9ca3af; font-style: italic;">Not teaching</span>')
 
         html = '''
-        <table style="width: 100%; min-width: 200px; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white;">
+        <table style="width: 100%; min-width: 250px; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white;">
             <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
                 <th style="padding: 6px 12px; text-align: left; font-size: 12px; color: #6b7280; font-weight: 600;">Course Taught</th>
                 <th style="padding: 6px 12px; text-align: right; font-size: 12px; color: #6b7280; font-weight: 600;">Fill</th>
@@ -153,37 +153,56 @@ class CourseAdminView(BaseAdminView):
         })
     ]
 
-class EnrollmentAdminView(BaseAdminView):
-    column_list = ('student', 'course', 'grade')
+# --- NEW: STUDENT ENROLLMENT DASHBOARD VIEW ---
+# Instead of loading the raw Enrollment table, this loads the User table 
+# but completely filters out teachers and admins!
+class StudentEnrollmentView(BaseAdminView):
+    
+    # These two functions force this tab to ONLY show users with the 'student' role
+    def get_query(self):
+        return super(StudentEnrollmentView, self).get_query().filter(User.role == 'student')
+
+    def get_count_query(self):
+        return super(StudentEnrollmentView, self).get_count_query().filter(User.role == 'student')
+
+    column_list = ('username', 'name', 'details')
     column_labels = {
-        'student': 'Student',
-        'course': 'Course',
-        'grade': 'Current Grade'
+        'username': 'Student ID',
+        'name': 'Student Name',
+        'details': 'Active Enrollments & Grades'
     }
     
-    form_args = {
-        'course': {
-            'query_factory': available_courses_query,
-            'get_label': course_label_formatter
-        },
-        'student': {
-            'query_factory': available_students_query
-        }
-    }
+    # We apply the same nested table formatter here
+    column_formatters = {'details': nested_table_formatter}
+    
+    # We still allow you to add and edit enrollments from this view
+    inline_models = [
+        (Enrollment, {
+            'form_args': {
+                'course': {
+                    'query_factory': available_courses_query,
+                    'get_label': course_label_formatter
+                }
+            }
+        })
+    ]
 
-    # NEW: Admin Check - Blocks the admin from assigning a 7th class
     def on_model_change(self, form, model, is_created):
+        # We ensure the 6-class limit still works here
         if is_created and model.student:
             current_count = Enrollment.query.filter_by(student_id=model.student.id).count()
             if current_count >= 6:
                 raise ValidationError(f"Error: {model.student.name} is already registered for the maximum of 6 classes.")
 
 
-# Register the updated views
+# Register the updated views with custom tab names
 admin = Admin(app, name='ACME Admin', index_view=DashboardView())
-admin.add_view(UserAdminView(User, db.session))
-admin.add_view(CourseAdminView(Course, db.session))
-admin.add_view(EnrollmentAdminView(Enrollment, db.session))
+admin.add_view(UserAdminView(User, db.session, name="All Users", endpoint="users"))
+admin.add_view(CourseAdminView(Course, db.session, name="Courses", endpoint="courses"))
+
+# Notice we map our new specialized Student view to the "Enrollment" tab
+admin.add_view(StudentEnrollmentView(User, db.session, name="Enrollments", endpoint="enrollments"))
+
 admin.add_link(MenuLink(name='Sign out', category='', url='/logout'))
 
 # --- GENERAL ROUTES ---
@@ -226,7 +245,6 @@ def student_dashboard():
 @app.route('/enroll/<int:course_id>')
 @login_required
 def enroll_course(course_id):
-    # NEW: Student Dashboard Check - Blocks the student from adding a 7th class
     if len(current_user.enrollments) >= 6:
         flash("You cannot register for more than 6 classes.", "error")
         return redirect(url_for('student_dashboard'))

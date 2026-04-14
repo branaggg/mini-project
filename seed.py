@@ -1,3 +1,4 @@
+import random
 from app import app
 from models import db, User, Course, Enrollment
 
@@ -36,7 +37,10 @@ def seed_data():
         his110 = Course(name='HIS 110', time='MWF 3:00-3:50 PM', capacity=30, teacher=this)
         his300 = Course(name='HIS 300', time='TR 3:30-4:45 PM', capacity=30, teacher=this)
 
-        db.session.add_all([math131, math250, phys102, phys220, cse234, cse350, eng101, eng205, his110, his300])
+        # Store courses in a list so we can randomly pick from them later
+        created_courses = [math131, math250, phys102, phys220, cse234, cse350, eng101, eng205, his110, his300]
+        
+        db.session.add_all(created_courses)
         db.session.commit()
 
         print("Creating 50 explicit students with ultra-short usernames...")
@@ -103,7 +107,29 @@ def seed_data():
         db.session.add_all(students)
         db.session.commit()
 
-        print("Database seeded successfully with explicit data! You can now log in.")
+        print("Randomly enrolling students into courses...")
+        
+        # Loop through every student and randomly assign them to classes
+        for student in students:
+            # Randomly decide if they are taking 2, 3, or 4 classes
+            num_classes = random.randint(2, 4)
+            
+            # Select unique courses from the list so they don't enroll in the same class twice
+            selected_courses = random.sample(created_courses, num_classes)
+            
+            for course in selected_courses:
+                # 70% chance they have a grade between 60 and 100, 30% chance it is empty
+                if random.random() > 0.3:
+                    grade = random.randint(60, 100)
+                else:
+                    grade = None
+                    
+                enrollment = Enrollment(student=student, course=course, grade=grade)
+                db.session.add(enrollment)
+
+        db.session.commit()
+
+        print("Database seeded successfully with explicit data and random enrollments! You can now log in.")
 
 if __name__ == '__main__':
     seed_data()
